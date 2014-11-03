@@ -112,6 +112,18 @@ void *bed_read(const char *fn);
 void bed_destroy(void *_h);
 int bed_overlap(const void *_h, const char *chr, int beg, int end);
 
+
+// mar4: here is where we would define Chris's new structs/typedef:
+// mar4: mplp_filecache_t
+
+// typedef struct {
+//   char *fname;
+//   samFile fp;      // mar4: this is was bamFile in 0.1.19
+//   bam_hdr_t *h;    // mar4: this is was bam_header_t in 0.1.19
+//   bam_index_t *idx;
+// } mplp_filecache_t  
+
+
 typedef struct {
     int min_mq, flag, min_baseQ, capQ_thres, max_depth, max_indel_depth, fmt_flag;
     int rflag_require, rflag_filter;
@@ -260,6 +272,9 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
     for (i = 0; i < n; ++i) {
         bam_hdr_t *h_tmp;
         data[i] = calloc(1, sizeof(mplp_aux_t));
+        // mar4: here is the place to put some of Chris's mods, the ones that start
+        // mar4: on line 270 in /workspace/cwakefield/ken/mod-samtools/bam_plcmd.c
+        //
         data[i]->fp = sam_open(fn[i], "rb");
         if ( !data[i]->fp )
         {

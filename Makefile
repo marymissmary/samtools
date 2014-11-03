@@ -39,7 +39,8 @@ AOBJS=      bam_index.o bam_plcmd.o sam_view.o \
 INCLUDES=   -I. -I$(HTSDIR)
 LIBCURSES=  -lcurses # -lXCurses
 
-prefix      = /usr/local
+#prefix      = /usr/local
+prefix      = /home/marohrdanz/software/samtools
 exec_prefix = $(prefix)
 bindir      = $(exec_prefix)/bin
 mandir      = $(prefix)/share/man

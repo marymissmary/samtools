@@ -23,6 +23,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
+// marohrdanz 3 nov 2014
+// recreating Chris's modifications to include BAM cacheing
+// (from version 0.1.19) into this version 1.0
+
 #include <math.h>
 #include <stdio.h>
 #include <unistd.h>

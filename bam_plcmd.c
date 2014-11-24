@@ -41,7 +41,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <htslib/khash_str2int.h>
 #include "sam_header.h"
 #include "samtools.h"
-#include "bam.h" // mar4: <--- for bam_iter_read declaration
+#include <htslib/bgzf.h>   // mar4: <-- for declaration of bgzf_set_cache_size
 
 static inline int printw(int c, FILE *fp)
 {
@@ -123,9 +123,9 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end);
 
 typedef struct {
   char *fname;
-  samFile fp;      // mar4: this was bamFile in 0.1.19
+  samFile *fp;      // mar4: this was bamFile in 0.1.19
   bam_hdr_t *h;    // mar4: this was bam_header_t in 0.1.19
-  bam_index_t *idx;
+  hts_idx_t *idx;  // mar4: this was bam_index_t in 0.1.19
 } mplp_filecache_t;
 
 
@@ -175,13 +175,16 @@ static int mplp_func(void *data, bam1_t *b)
     int ret, skip = 0;
     do {
         int has_ref;
-        // mar4: commenting the following line out, and putting in some of Chris's profiling
+        // mar4: commenting the following line out, and putting in some of Chris's profiling,
+        // mar4: but making changes: bam_iter_read -> sam_iter_next, and 
+        // mar4: bam_read1 -> sam_read1
         //ret = ma->iter? sam_itr_next(ma->fp, ma->iter, b) : sam_read1(ma->fp, ma->h, b);
         if (ma->iter) {
-          ret = bam_iter_read(ma->fp,ma->iter,b);        
+          ret = sam_itr_next(ma->fp,ma->iter,b);
           cw_bam_iter_read_counter += 1;
         } else {
-          ret = bam_read1(ma->fp,b);
+          //ret = bam_read1(ma->fp,b);
+          ret = sam_read1(ma->fp,ma->h,b);
         }
         // the following lines are back to non-Chris-mod code:
 
@@ -304,15 +307,20 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
         // mar4: here is the place to put some of Chris's mods, the ones that start
         // mar4: on line 270 in /workspace/cwakefield/ken/mod-samtools/bam_plcmd.c
         //
-        //data[i]->fp = sam_open(fn[i], "rb");  // mar4: <-- different in 1.0 vs 0.1.19
-        //  mar4: adding in the file cachine lines:
+        // mar4: here is the 1.0 version:
+        //   data[i]->fp = sam_open(fn[i], "rb");  // mar4: <-- different in 1.0 vs 0.1.19
+        // mar4: here is the 0.1.19 version:
+        //    data[i]->fp = strcmp(fn[i], "-") == 0? bam_dopen(fileno(stdin), "r") : bam_open(fn[i], "r");
+        // mar4: adding in the file cachine lines:
         if (conf->filecache && conf->filecache[i].fp != 0) {
           data[i]->fp = conf->filecache[i].fp;
         } else { // mar4: do the original thing
           // mar4: this is the original line, as it would have been in 0.1.19....but things have
           // mar4: changed a bit...so I think the correct line here is the second one down
           // data[i]->fp = strcmp(fn[i],"-") == 0? bam_dopen(fileno(stdin),"r") : bam_open(fn[i], "r");        
-          data[i]->fp = sam_open(fn[i],"rb")
+          // mar4: for some reason, compiler doesn't like: data[i]->fp = sam_open(fn[i],"rb"); because of 
+          // mar4: samtools_sam_open definition in bam.h...so changing to:
+           data[i]->fp = sam_open(fn[i],"rb"); // mar4: <-- back to original, w/o #incluce "bam.h"
           if ( !data[i]->fp )
           {
              fprintf(stderr, "[%s] failed to open %s: %s\n", __func__, fn[i], strerror(errno));
@@ -322,11 +330,13 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
           {
             conf->filecache[i].fp = data[i]->fp;
             // mar4: cw comment: Set a BGZF cache
-            fprintf(stderr, "Setting BGZF cache size to %d M\n", conf->bamcachesizemb);
-            bgzf_set_cache_size(data[i]->fp, conf->bamcachesizemb * 1024 * 1024);
+            //fprintf(stderr, "Setting BGZF cache size to %d M\n", conf->bamcachesizemb);
+            //bgzf_set_cache_size(data[i]->fp, conf->bamcachesizemb * 1024 * 1024);
+            bgzf_set_cache_size(data[i]->fp->fp.bgzf, conf->bamcachesizemb * 1024 * 1024);
           } else if (n == 1) { // mar4: cw comment: this doesn't seem to help when doing mpileup w/o bed regions
-            fprintf(stderr, "Setting BGZF cache size to %d M\n", conf->bamcachesizemb);
-            bgzf_set_cache_size(data[i]->fp, conf->bamcachesizemb * 1024 * 1024);
+            //fprintf(stderr, "Setting BGZF cache size to %d M\n", conf->bamcachesizemb);
+            //bgzf_set_cache_size(data[i]->fp, conf->bamcachesizemb * 1024 * 1024);
+            bgzf_set_cache_size(data[i]->fp->fp.bgzf, conf->bamcachesizemb * 1024 * 1024);
           }
         }
     
@@ -373,10 +383,10 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
             }
             // mar4: this check existed in 0.1.19, but not in 1.0.
             // mar4: I'm going to put it in for now, and see what happens:
-            if (bam_parse_region(h_tmp, conf->reg, &tid, &conf->regbegin, &conf->regend) < 0) {
-              fprintf(stderr,"[%s] malformatted region or wrong sequence for %s\n",__func__,fn[i]);
-              exit(1);
-            }
+            //if (bam_parse_region(h_tmp, conf->reg, &tid, &conf->regbegin, &conf->regend) < 0) {
+            //  fprintf(stderr,"[%s] malformatted region or wrong sequence for %s\n",__func__,fn[i]);
+            //  exit(1);
+            //}
             // mar4: this check didn't exist in 0.1.19....
             if ( (data[i]->iter=sam_itr_querys(idx, data[i]->h, conf->reg)) == 0) {
                 fprintf(stderr, "[E::%s] fail to parse region '%s'\n", __func__, conf->reg);
@@ -539,10 +549,6 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
     int cw_pos_lt_beg0 = 0;
     int cw_pos_ge_end0 = 0;
     int cw_bam_mplp_auto_count = 0;
-    // mar4: and some of what are probably Chris's prints, but he commented out:
-    fprintf(stderr,"MPLP_BCF:        %d\n",(conf->flag & MPLP_BCBCF));
-    fprintf(stderr,"MPLP_PRINT_MAPQ: %d\n",(conf->flag & MPLP_PRINT_MAPQ));
-    fprintf(stderr,"MPLP_PRINT_POS:  %d\n",(conf->flag & MPLP_PRINT_POS));
 
 
     max_indel_depth = conf->max_indel_depth * sm->n;
@@ -560,7 +566,7 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
         }
         if (conf->bed && tid >= 0 && !bed_overlap(conf->bed, h->target_name[tid], pos, pos+1)) continue;
         if (tid != ref_tid) {
-            fprintf(stderr,"cw print: In tid != ref_tid. tid = %d ; ref_tid = %d\n",tid,ref_tid);
+            //fprintf(stderr,"cw print: In tid != ref_tid. tid = %d ; ref_tid = %d\n",tid,ref_tid);
             free(ref); ref = 0;
             if (conf->fai) ref = faidx_fetch_seq(conf->fai, h->target_name[tid], 0, 0x7fffffff, &ref_len);
             for (i = 0; i < n; ++i) data[i]->ref = ref, data[i]->ref_id = tid;
@@ -612,6 +618,7 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
                     // if (qualc[j] >= conf->min_baseQ) ++cnt;
                     // mar4: making Chris's 0.1.19 mods in 1.0 format:
                     qualc[j] = p->qpos < p->b->core.l_qseq ? bam_get_qual(p->b)[p->qpos] : 0;
+                    //fprintf(stderr,"mar4: 1.0: qualc[j] = %i[%i]\n",qualc[j],j);
                     if (qualc[j] >= conf->min_baseQ) ++cnt;
                     
                 } 
@@ -646,7 +653,10 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
                         //const bam_pileup1_t *p = plp[i] + j;
                         //int c = bam1_qual(p->b)[p->qpos];
                         // mar4: Chris's mod in 0.1.19:
-                        int c = qualc[j];  // mar4: leaving this for now
+                        const bam_pileup1_t *p = plp[i] + j;
+                        int c = p->qpos < p->b->core.l_qseq
+                            ? bam_get_qual(p->b)[p->qpos]
+                            : 0;
                         if (c >= conf->min_baseQ) {
                             c = c + 33 < 126? c + 33 : 126;
                             putc(c, pileup_fp);
@@ -708,12 +718,12 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
     }
     free(data); free(plp); free(ref); free(n_plp);
     // mar4: some Chris prints:
-    fprintf(stderr,"Called mplp_func %d times \n",cw_count1);
-    fprintf(stderr,"    cw_bam_iter_read_counter   = %d\n",cw_bam_iter_read_counter);
-    fprintf(stderr,"    cw_bam_mplp_auto_count     = %d\n",cw_bam_mplp_auto_count);
-    fprintf(stderr,"    cw_out_of_region_count     = %d\n",cw_out_of_region_count);
-    fprintf(stderr,"    cw_pos_lt_beg0             = %d\n",cw_pos_lt_beg0);
-    fpritnf(stderr,"    cw_pos_ge_end0             = %d\n",cw_pos_ge_end0);
+    //fprintf(stderr,"Called mplp_func %d times \n",cw_count1);
+    //fprintf(stderr,"    cw_bam_iter_read_counter   = %d\n",cw_bam_iter_read_counter);
+    //fprintf(stderr,"    cw_bam_mplp_auto_count     = %d\n",cw_bam_mplp_auto_count);
+    //fprintf(stderr,"    cw_out_of_region_count     = %d\n",cw_out_of_region_count);
+    //fprintf(stderr,"    cw_pos_lt_beg0             = %d\n",cw_pos_lt_beg0);
+    //fprintf(stderr,"    cw_pos_ge_end0             = %d\n",cw_pos_ge_end0);
     return ret;
 }
 
@@ -790,7 +800,7 @@ int read_bed_lines (const char *bed_file_name, int *n, char **argv[])
   FILE *fh = fopen(bed_file_name,"r");
   if ( !fh) 
   {
-    fprintf(stderr,"%s: %s\n", bed_file_name, sterror(errno));
+    fprintf(stderr,"%s: %s\n", bed_file_name, strerror(errno));
     return 1;
   }
 
@@ -1118,7 +1128,7 @@ int bam_mpileup(int argc, char *argv[])
       // mar4: cw comment: read each line in BED file, inserting into mplp.reg before mpileup
       for (ix = 0; ix < nbedlines ; ix++) {
         fixBedLine (fn[ix]);
-        fprintf(stderr,"[%d] : '%s'\n",ix,fn[ix]);
+        //fprintf(stderr,"[%d] : '%s'\n",ix,fn[ix]);
         mplp.reg = fn[ix];
         // mar4: trying ret = here... but we return something different in 1.0 vs 0.1.19
         ret = mpileup(&mplp,argc-optind,argv+optind);

@@ -265,10 +265,6 @@ static void group_smpl(mplp_pileup_t *m, bam_sample_t *sm, kstring_t *buf,
  */
 static int mpileup(mplp_conf_t *conf, int n, char **fn)
 {
-    fprintf(stderr,"\n\nmar4: MAR4: start of %s\n",__func__);
-    fprintf(stderr,"mar4: conf.regbegin = %i\n",conf->regbegin);
-    fprintf(stderr,"mar4: conf.regend   = %i\n",conf->regend);
-    fprintf(stderr,"mar4: conf.reg:       %s\n",conf->reg);
     extern void *bcf_call_add_rg(void *rghash, const char *hdtext, const char *list);
     extern void bcf_call_del_rghash(void *rghash);
     mplp_aux_t **data;
@@ -373,10 +369,7 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
         bam_smpl_add(sm, fn[i], (conf->flag&MPLP_IGNORE_RG)? 0 : h_tmp->text);
         // Collect read group IDs with PL (platform) listed in pl_list (note: fragile, strstr search)
         rghash = bcf_call_add_rg(rghash, h_tmp->text, conf->pl_list);
-        fprintf(stderr,"mar4: before IF CONDITIONAL conf->reg\n");
         if (conf->reg) {
-            fprintf(stderr,"mar4: IF CONDITIONAL conf->reg\n");
-            fprintf(stderr,"mar4: conf->reg: %s\n",conf->reg);
             // mar4: hts_idx_t in 1.0 was bam_index_t in 0.1.19
             //hts_idx_t *idx = sam_index_load(data[i]->fp, fn[i]);
             hts_idx_t *idx;
@@ -829,8 +822,6 @@ int read_bed_lines (const char *bed_file_name, int *n, char **argv[])
     nlines++;
     lines = realloc(lines,nlines*sizeof(char*));
     lines[nlines-1] = strdup(buf);
-    fprintf(stderr,"mar4: in %s, buf = %s\n",__func__,buf);
-    fprintf(stderr,"mar4: in %s, lines[nlines-1] = %s\n",__func__,lines[nlines-1]);
   }
   fclose(fh);
   if (!nlines)
@@ -839,10 +830,7 @@ int read_bed_lines (const char *bed_file_name, int *n, char **argv[])
     return 1;
   }
   *argv = lines;
-  fprintf(stderr,"mar4: in %s, lines = %s\n",__func__,lines[0]);
-  fprintf(stderr,"mar4: in %s, lines = %s\n",__func__,lines[1]);
   *n    = nlines;
-  fprintf(stderr,"mar4: in %s, nlines = %i\n",__func__,nlines);
   return 0;
 }
 #undef MAX_BED_LEN
@@ -850,8 +838,6 @@ int read_bed_lines (const char *bed_file_name, int *n, char **argv[])
 // mar4: another function from Chris:
 void fixBedLine (char *line) 
 {
-  fprintf(stderr,"mar4: fixBedLine\n");
-  fprintf(stderr,"mar4: line: %s\n",line);
   // first need to add 1 to the very first entry
   char *array[3];
   int i=0;
@@ -1075,9 +1061,7 @@ int bam_mpileup(int argc, char *argv[])
                   // In the original version the whole BAM was streamed which is inefficient
                   //  with few BED intervals and big BAMs. Todo: devise a heuristic to determine
                   //  best strategy, that is streaming or jumping.
-                  fprintf(stderr,"mar4: optarg: %s\n",optarg);
                   mplp.bed = bed_read(optarg);
-                  fprintf(stderr,"mar4: mplp.bed: %i\n",mplp.bed);
                   if (!mplp.bed) { print_error_errno("Could not read file \"%s\"", optarg); return 1; }
                   // setup to use fewBEDregsion option:
                   //fewBEDregions = 1;
@@ -1149,8 +1133,6 @@ int bam_mpileup(int argc, char *argv[])
     }
     int ret;
     if (file_list) {
-        fprintf(stderr,"mar4:   IN THE file_list CLAUSE\n");
-        fprintf(stderr,"mar4: mplp.reg = %s\n",mplp.reg);
         if ( read_file_list(file_list,&nfiles,&fn) ) return 1;
         ret = mpileup(&mplp,nfiles,fn);
         for (c=0; c<nfiles; c++) free(fn[c]);
@@ -1158,8 +1140,6 @@ int bam_mpileup(int argc, char *argv[])
     } else if (fewBEDregions || multipileup)  { // mar4: use filecaching
       // mar4: cw comment: Loop over BED file, inserting each line into mplp.reg before mpileup
       const char* bedfilename = (const char*) mplp.bed;
-      fprintf(stderr,"mar4: bedfilename: %s\n",bedfilename);
-      fprintf(stderr,"mar4: mplp.bed:    %s\n",(char*)mplp.bed);
       //fprintf(stderr,"mar4: mplp.bed:    %s\n",mplp.bed);
       int ix;
       int nbedlines;
@@ -1168,27 +1148,15 @@ int bam_mpileup(int argc, char *argv[])
       mplp.bed = (void*) 0;
       if (read_bed_lines(bedfilename,&nbedlines,&fn) ) return 1;
       mplp.filecache = calloc(numbamfiles, sizeof(mplp_filecache_t));
-      for (ix = 0; ix < nbedlines; ix++)
-      {
-        fprintf(stderr,"mar4: fn[%i] = %s\n",ix,fn[ix]);
-      }
       // mar4: cw comment: read each line in BED file, inserting into mplp.reg before mpileup
       for (ix = 0; ix < nbedlines ; ix++) {
-        fprintf(stderr,"mar4: before fixBedLine: fn[ix]: [%d] : '%s'\n",ix,fn[ix]);
         fixBedLine (fn[ix]);
-        fprintf(stderr,"mar4: after fixBedLine: fn[ix]: [%d] : '%s'\n",ix,fn[ix]);
         mplp.reg = fn[ix];
-      //exit(1);
-        fprintf(stderr,"mar4: mplp.reg: '%s'\n",mplp.reg);
         // mar4: trying ret = here... but we return something different in 1.0 vs 0.1.19
-        fprintf(stderr,"mar4:   IN THE fewBEDregions CLAUSE\n");
-        fprintf(stderr,"mar4: mplp.reg = %s\n",mplp.reg);
         ret = mpileup(&mplp,argc-optind,argv+optind);
       }
       mplp.reg = 0;
     } else { 
-        fprintf(stderr,"mar4:   IN THE else CLAUSE\n");
-        fprintf(stderr,"mar4: mplp.reg = %s\n",mplp.reg);
         ret = mpileup(&mplp, argc - optind, argv + optind);
     }
     if (mplp.rghash) khash_str2int_destroy_free(mplp.rghash);

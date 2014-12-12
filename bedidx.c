@@ -65,22 +65,18 @@ int *bed_index_core(int n, uint64_t *a, int *n_idx)
     for (i = 0; i < n; ++i) {
         int beg, end;
         beg = a[i]>>32 >> LIDX_SHIFT; end = ((uint32_t)a[i]) >> LIDX_SHIFT;
-        fprintf(stderr,"mar4: core beg = %i; end = %i\n",beg,end);
         if (m < end + 1) {
             int oldm = m;
             m = end + 1;
             kroundup32(m);
-            fprintf(stderr,"mar4: core m = %i\n",m);
             idx = realloc(idx, m * sizeof(int));
             for (j = oldm; j < m; ++j) idx[j] = -1;
         }
         if (beg == end) {
             if (idx[beg] < 0) idx[beg] = i;
-            fprintf(stderr,"mar4: core beg==end, idx[%i] = %i\n",beg,i);
         } else {
             for (j = beg; j <= end; ++j)
                 if (idx[j] < 0) idx[j] = i;
-                fprintf(stderr,"mar4: core idx[%i] = %i\n",j,idx[j]);
         }
         *n_idx = end + 1;
     }
@@ -89,7 +85,6 @@ int *bed_index_core(int n, uint64_t *a, int *n_idx)
 
 void bed_index(void *_h)
 {
-    fprintf(stderr,"mar4: start of *** %s ****\n",__func__);
     reghash_t *h = (reghash_t*)_h;
     khint_t k;
     for (k = 0; k < kh_end(h); ++k) {
@@ -100,7 +95,6 @@ void bed_index(void *_h)
             p->idx = bed_index_core(p->n, p->a, &p->m);
         }
     }
-    fprintf(stderr,"mar4: end of *** %s ****\n",__func__);
 }
 
 int bed_overlap_core(const bed_reglist_t *p, int beg, int end)
@@ -125,7 +119,6 @@ int bed_overlap_core(const bed_reglist_t *p, int beg, int end)
 
 int bed_overlap(const void *_h, const char *chr, int beg, int end)
 {
-    fprintf(stderr,"mar4: start of ******   %s *******\n",__func__);
     const reghash_t *h = (const reghash_t*)_h;
     khint_t k;
     if (!h) return 0;
@@ -167,7 +160,6 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end)
 
 void *bed_read(const char *fn)
 {
-    fprintf(stderr,"mar4: START OF BED_READ\n");
     reghash_t *h = kh_init(reg);
     gzFile fp;
     kstream_t *ks = NULL;
@@ -182,49 +174,30 @@ void *bed_read(const char *fn)
     ks = ks_init(fp);
     if (NULL == ks) goto fail;  // In case ks_init ever gets error checking...
     while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) > 0) { // read a line
-        fprintf(stderr,"\n\tmar4: while loop in bed_read\n");
-        fprintf(stderr,"\nmar4: str.s has the actual line read in?\n");
-        fprintf(stderr,"mar4: str.s: %s\n",str.s);
-        fprintf(stderr,"mar4: str.l: %zu\n",str.l);
-        fprintf(stderr,"mar4: str.m: %zu\n",str.m);
-        fprintf(stderr,"mar4: dret: %i\n",dret);
         char *ref = str.s, *ref_end; 
-        fprintf(stderr,"mar4: ref_end: %s\n",ref_end);
-        fprintf(stderr,"mar4: ref:     %s\n",ref); 
         unsigned int beg = 0, end = 0;
         int num = 0;
         khint_t k;
         bed_reglist_t *p;
  
-        fprintf(stderr,"mar4: line: %i\n",line);
         line++;
-        fprintf(stderr,"mar4: line after: %i\n",line);
         while (*ref && isspace(*ref)){
-          fprintf(stderr,"mar4: ref is space.\n");
           ref++;
         }
         if ('\0' == *ref) {fprintf(stderr,"mar4: skip blank line string termination\n"); continue; } // Skip blank lines
         if ('#'  == *ref) {fprintf(stderr,"mar4: skip comment lines (^#)\n"); continue; } // Skip BED file comments
         ref_end = ref;   // look for the end of the reference name
         while (*ref_end && !isspace(*ref_end))  {
-           fprintf(stderr,"mar4: while ref_end and not issspace ref_end loop\n");
            ref_end++;
-           fprintf(stderr,"mar4: ref_end++: %s\n",ref_end);
         }
         if ('\0' != *ref_end) {
-            fprintf(stderr,"\nmar4: IF CONDITION string_end != *ref_end\n");
             *ref_end = '\0';  // terminate ref and look for start, end
             num = sscanf(ref_end + 1, "%u %u", &beg, &end);
-            fprintf(stderr,"mar4: I think this gets beginning and end.\n");
-            fprintf(stderr,"mar4: num: %i\n",num);
-            fprintf(stderr,"mar4: beg = %i and end = %i\n",beg,end);
         }
         if (1 == num) {  // VCF-style format
-            fprintf(stderr,"\nmar4: IF CONDITION 1 == num\n");
             end = beg--; // Counts from 1 instead of 0 for BED files
         }
         if (num < 1 || end < beg) {
-            fprintf(stderr,"\nmar4: IF CONDITION num < 1 || end < beg\n");
             // These two are special lines that can occur in BED files.
             // Check for them here instead of earlier in case someone really
             // has called their reference "browser" or "track".
@@ -236,29 +209,19 @@ void *bed_read(const char *fn)
         }
         
         // Put reg in the hash table if not already there
-        fprintf(stderr,"mar4: ref = %s\n",ref);
         k = kh_get(reg, h, ref);
-        fprintf(stderr,"mar4: k? %i\n",k);
-        fprintf(stderr,"mar4: kh_end(h): %i\n",kh_end(h));
         if (k == kh_end(h)) { // absent from the hash table
-            fprintf(stderr,"mar4: absent from the hash table\n");
             int ret;
             char *s = strdup(ref);
             if (NULL == s) goto fail;
             k = kh_put(reg, h, s, &ret);
-            fprintf(stderr,"mar4: k in absent if: %i\n",k);
             if (-1 == ret) {
                 free(s);
                 goto fail;
             }
             memset(&kh_val(h, k), 0, sizeof(bed_reglist_t));
-        } else {
-          fprintf(stderr,"mar4: not absent from the hash table?\n");
         }
         p = &kh_val(h, k);
-        fprintf(stderr,"mar4: k after ifs: %i\n",k);
-        fprintf(stderr,"mar4: p->n? %i\n",p->n);
-        fprintf(stderr,"mar4: p->m? %i\n",p->m);
         // Add begin,end to the list
         if (p->n == p->m) {
             p->m = p->m? p->m<<1 : 4;
@@ -274,7 +237,6 @@ void *bed_read(const char *fn)
     gzclose(fp);
     free(str.s);
     bed_index(h);
-    fprintf(stderr,"mar4: END OF BED_READ\n");
     return h;
  fail:
     fprintf(stderr, "[bed_read] Error reading %s : %s\n", fn, strerror(errno));

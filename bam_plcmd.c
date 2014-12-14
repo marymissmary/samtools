@@ -118,6 +118,7 @@ static inline void pileup_seq(FILE *fp, const bam_pileup1_t *p, int pos, int ref
 #define MPLP_SMART_OVERLAPS (1<<12)
 
 void *bed_read(const char *fn);
+int bed_read_as_array(const char *bedfilename, char *region_lines);
 void bed_destroy(void *_h);
 int bed_overlap(const void *_h, const char *chr, int beg, int end);
 
@@ -965,7 +966,7 @@ int bam_mpileup(int argc, char *argv[])
     char **fn = NULL;
     int nfiles = 0, use_orphan = 0;
     int multipileup = 0;  // mar4: cw mod
-    int fewBEDregions = 0;  // mar4: few bed regions for -l option
+    int few_bed_regions = 0;  // mar4: few bed regions for -l option
     mplp_conf_t mplp;
     memset(&mplp, 0, sizeof(mplp_conf_t));
     mplp.min_baseQ = 13;
@@ -1061,14 +1062,17 @@ int bam_mpileup(int argc, char *argv[])
                   // In the original version the whole BAM was streamed which is inefficient
                   //  with few BED intervals and big BAMs. Todo: devise a heuristic to determine
                   //  best strategy, that is streaming or jumping.
-                  mplp.bed = bed_read(optarg);
+                  few_bed_regions = 1;  // mar4: set up to always use my new code
+                  if (few_bed_regions) 
+                  {
+                    mplp.bed = strdup(optarg); // mar4: new code I'm adding to use cw's performance improvements
+                    mplp.bamcachesizemb = 50;  // mar4: hard-code for now 
+                  } 
+                  else 
+                  {
+                    mplp.bed = bed_read(optarg);  // mar4: the original functionality
+                  }
                   if (!mplp.bed) { print_error_errno("Could not read file \"%s\"", optarg); return 1; }
-                  // setup to use fewBEDregsion option:
-                  //fewBEDregions = 1;
-                  //if (fewBEDregions) // then get just text of filename for mplp.bed:
-                 // {
-                 //   mplp.bed = strdup(optarg);
-                 // }
                   break;
         case 'P': mplp.pl_list = strdup(optarg); break;
         case 'p': mplp.flag |= MPLP_PER_SAMPLE; break;
@@ -1137,21 +1141,30 @@ int bam_mpileup(int argc, char *argv[])
         ret = mpileup(&mplp,nfiles,fn);
         for (c=0; c<nfiles; c++) free(fn[c]);
         free(fn);
-    } else if (fewBEDregions || multipileup)  { // mar4: use filecaching
+    } else if (few_bed_regions || multipileup)  { // mar4: use filecaching
       // mar4: cw comment: Loop over BED file, inserting each line into mplp.reg before mpileup
+      fprintf(stderr,"mar4: few_bed_regions\n");
       const char* bedfilename = (const char*) mplp.bed;
+      char* region_lines;
+      int nbedlines = bed_read_as_array(bedfilename,region_lines);
+      //fprintf(stderr,"mar4: region_lines[%i] = %s\n",ix,region_lines[ix]);
+      fprintf(stderr,"mar4: back in %s, nbedlines = %i\n",__func__,nbedlines);
       //fprintf(stderr,"mar4: mplp.bed:    %s\n",mplp.bed);
       int ix;
-      int nbedlines;
       int numbamfiles = argc - optind;
       
       mplp.bed = (void*) 0;
-      if (read_bed_lines(bedfilename,&nbedlines,&fn) ) return 1;
+      fprintf(stderr,"mar4: after mplp.bed assignment.\n");
+      //if (read_bed_lines(bedfilename,&nbedlines,&fn) ) return 1;
       mplp.filecache = calloc(numbamfiles, sizeof(mplp_filecache_t));
       // mar4: cw comment: read each line in BED file, inserting into mplp.reg before mpileup
+      fprintf(stderr,"mar4: before loop.\n");
       for (ix = 0; ix < nbedlines ; ix++) {
-        fixBedLine (fn[ix]);
-        mplp.reg = fn[ix];
+        //fixBedLine (fn[ix]);
+        fprintf(stderr,"mar4: start loop...idx = %i\n",ix);
+        fprintf(stderr,"mar4: region_lines[%i] = %s\n",ix,region_lines);
+        mplp.reg = region_lines[ix];
+        fprintf(stderr,"mar4: getting ready for mpileup.\n");
         // mar4: trying ret = here... but we return something different in 1.0 vs 0.1.19
         ret = mpileup(&mplp,argc-optind,argv+optind);
       }

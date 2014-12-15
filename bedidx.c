@@ -30,6 +30,8 @@ DEALINGS IN THE SOFTWARE.  */
 #include <errno.h>
 #include <zlib.h>
 
+#include <inttypes.h>  // mar4 <-- for pringint of uint64_t
+
 #ifdef _WIN32
 #define drand48() ((double)rand() / RAND_MAX)
 #endif
@@ -117,6 +119,7 @@ int bed_overlap_core(const bed_reglist_t *p, int beg, int end)
 
 int bed_overlap(const void *_h, const char *chr, int beg, int end)
 {
+    fprintf(stderr,"mar4: ^^^^^^ start of %s ^^^^^^^^\n",__func__);
     const reghash_t *h = (const reghash_t*)_h;
     khint_t k;
     if (!h) return 0;
@@ -156,6 +159,111 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end)
    The VCF specification is at https://github.com/samtools/hts-specs
  */
 
+#define MAX_BED_LEN 160
+#define MAX_REFERENCE_LENGTH 20 // max length of bed line reference
+int bed_read_as_array(const char *fn, int *pnlines, char **argv[] )
+{
+    fprintf(stderr,"mar4: start of %s\n",__func__);
+    //char **region_lines; // will store properly formatted region lines
+    int len, nlines = 0;
+    char buf[MAX_BED_LEN];
+    char reference_string[MAX_REFERENCE_LENGTH];
+    char **region_lines = NULL;
+
+    *argv = NULL;
+
+    region_lines = calloc(nlines,sizeof(char*));
+
+    gzFile fp;
+    kstream_t *ks = NULL;
+    int dret;
+    unsigned int line = 0;   // line of the bed file
+    kstring_t str = { 0, 0, NULL };
+
+    // read the list
+    fp = strcmp(fn, "-")? gzopen(fn, "r") : gzdopen(fileno(stdin), "r");
+    if (fp == 0) return 0;
+    ks = ks_init(fp);
+    if (NULL == ks) goto fail;  // In case ks_init ever gets error checking...
+    while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) > 0) { // read a line
+        char *ref = str.s, *ref_end; 
+        unsigned int beg = 0, end = 0;
+        int num = 0;
+  
+        nlines++;
+        len = strlen(str.s);
+
+        line++;
+        while (*ref && isspace(*ref)){
+          ref++;
+        }
+        if ('\0' == *ref) {fprintf(stderr,"mar4: skip blank line string termination\n"); continue; } // Skip blank lines
+        if ('#'  == *ref) {fprintf(stderr,"mar4: skip comment lines (^#)\n"); continue; } // Skip BED file comments
+        ref_end = ref;   // look for the end of the reference name
+        int ref_string_length = 0;
+        reference_string[ref_string_length] = *ref_end;
+        while (*ref_end && !isspace(*ref_end))  {
+           ref_string_length++;
+           ref_end++;
+           reference_string[ref_string_length] = *ref_end;
+        }
+        fprintf(stderr,"mar4: ref_string_length = %i\n",ref_string_length);
+        char reference_clean[ref_string_length];  // = substring(reference_string,0,ref_string_length);
+        memset(reference_clean,'\0',sizeof(reference_clean));
+        strncpy(reference_clean,reference_string,ref_string_length);
+        if ('\0' != *ref_end) {
+            *ref_end = '\0';  // terminate ref and look for start, end
+            num = sscanf(ref_end + 1, "%u %u", &beg, &end);
+            beg = beg + 1;  // because samtools default is
+            region_lines = realloc(region_lines,nlines*sizeof(char*));
+           
+            sprintf(buf,"%s:%i-%i",reference_clean,beg,end);
+            fprintf(stderr,"mar4: buf = %s\n",buf);
+            fprintf(stderr,"mar4: nlines = %i\n",nlines);
+            region_lines[nlines-1] = strdup(buf);
+            fprintf(stderr,"mar4: region_lines[%i] = %s\n",nlines-1,region_lines[nlines-1]);
+        }
+        if (1 == num) {  // VCF-style format
+            end = beg--; // Counts from 1 instead of 0 for BED files
+        }
+        if (num < 1 || end < beg) {
+            // These two are special lines that can occur in BED files.
+            // Check for them here instead of earlier in case someone really
+            // has called their reference "browser" or "track".
+            if (0 == strcmp(ref, "browser")) continue;
+            if (0 == strcmp(ref, "track")) continue;
+            fprintf(stderr, "[bed_read] Parse error reading %s at line %u\n",
+                    fn, line);
+            goto fail_no_msg;
+        }
+    }
+    // FIXME: Need to check for errors in ks_getuntil.  At the moment it
+    // doesn't look like it can return one.  Possibly use gzgets instead?
+
+    //final_region_lines = region_lines[0];
+    fprintf(stderr,"mar4: look at results before clearing and leaving %s\n",__func__);
+   int i;
+   for ( i=0; i<nlines; i++)
+   {
+     fprintf(stderr,"mar4: region_lines[%i] = %s\n",i,region_lines[i]);
+   }
+
+
+    ks_destroy(ks);
+    gzclose(fp);
+    free(str.s);
+    *pnlines = nlines;
+    *argv = region_lines;
+    return 0;
+ fail:
+    fprintf(stderr, "[bed_read] Error reading %s : %s\n", fn, strerror(errno));
+    return 1;
+ fail_no_msg:
+    if (ks) ks_destroy(ks);
+    if (fp) gzclose(fp);
+    free(str.s);
+    return 1;
+}
 void *bed_read(const char *fn)
 {
     reghash_t *h = kh_init(reg);
@@ -172,18 +280,22 @@ void *bed_read(const char *fn)
     ks = ks_init(fp);
     if (NULL == ks) goto fail;  // In case ks_init ever gets error checking...
     while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) > 0) { // read a line
-        char *ref = str.s, *ref_end;
+        char *ref = str.s, *ref_end; 
         unsigned int beg = 0, end = 0;
         int num = 0;
         khint_t k;
         bed_reglist_t *p;
-
+ 
         line++;
-        while (*ref && isspace(*ref)) ref++;
-        if ('\0' == *ref) continue;  // Skip blank lines
-        if ('#'  == *ref) continue;  // Skip BED file comments
+        while (*ref && isspace(*ref)){
+          ref++;
+        }
+        if ('\0' == *ref) {fprintf(stderr,"mar4: skip blank line string termination\n"); continue; } // Skip blank lines
+        if ('#'  == *ref) {fprintf(stderr,"mar4: skip comment lines (^#)\n"); continue; } // Skip BED file comments
         ref_end = ref;   // look for the end of the reference name
-        while (*ref_end && !isspace(*ref_end)) ref_end++;
+        while (*ref_end && !isspace(*ref_end))  {
+           ref_end++;
+        }
         if ('\0' != *ref_end) {
             *ref_end = '\0';  // terminate ref and look for start, end
             num = sscanf(ref_end + 1, "%u %u", &beg, &end);
@@ -201,7 +313,7 @@ void *bed_read(const char *fn)
                     fn, line);
             goto fail_no_msg;
         }
-
+        
         // Put reg in the hash table if not already there
         k = kh_get(reg, h, ref);
         if (k == kh_end(h)) { // absent from the hash table
@@ -216,7 +328,6 @@ void *bed_read(const char *fn)
             memset(&kh_val(h, k), 0, sizeof(bed_reglist_t));
         }
         p = &kh_val(h, k);
-
         // Add begin,end to the list
         if (p->n == p->m) {
             p->m = p->m? p->m<<1 : 4;

@@ -23,8 +23,8 @@
 
 CC       = gcc
 CPPFLAGS = $(DFLAGS) $(INCLUDES)
-CFLAGS   = -g -Wall -O2
-LDFLAGS  =
+CFLAGS   = -Wall -O2 -g -pg # no debugging or profiling for timing: -g -pg
+LDFLAGS  = -g -pg
 LDLIBS   =
 DFLAGS=     -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_CURSES_LIB=1
 LOBJS=      bam_aux.o bam.o bam_import.o sam.o \
@@ -39,7 +39,8 @@ AOBJS=      bam_index.o bam_plcmd.o sam_view.o \
 INCLUDES=   -I. -I$(HTSDIR)
 LIBCURSES=  -lcurses # -lXCurses
 
-prefix      = /usr/local
+#prefix      = /usr/local
+prefix      = /home/marohrdanz/software/samtools
 exec_prefix = $(prefix)
 bindir      = $(exec_prefix)/bin
 mandir      = $(prefix)/share/man

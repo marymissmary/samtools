@@ -119,6 +119,7 @@ int bed_overlap_core(const bed_reglist_t *p, int beg, int end)
 
 int bed_overlap(const void *_h, const char *chr, int beg, int end)
 {
+    fprintf(stderr,"mar4: ^^^^^^ start of %s ^^^^^^^^\n",__func__);
     const reghash_t *h = (const reghash_t*)_h;
     khint_t k;
     if (!h) return 0;
@@ -160,13 +161,16 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end)
 
 #define MAX_BED_LEN 160
 #define MAX_REFERENCE_LENGTH 20 // max length of bed line reference
-*void bed_read_as_array(const char *fn, int nlines)
+int bed_read_as_array(const char *fn, int *pnlines, char **argv[] )
 {
     fprintf(stderr,"mar4: start of %s\n",__func__);
-    char **region_lines; // will store properly formatted region lines
+    //char **region_lines; // will store properly formatted region lines
     int len, nlines = 0;
     char buf[MAX_BED_LEN];
     char reference_string[MAX_REFERENCE_LENGTH];
+    char **region_lines = NULL;
+
+    *argv = NULL;
 
     region_lines = calloc(nlines,sizeof(char*));
 
@@ -210,10 +214,13 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end)
         if ('\0' != *ref_end) {
             *ref_end = '\0';  // terminate ref and look for start, end
             num = sscanf(ref_end + 1, "%u %u", &beg, &end);
+            beg = beg + 1;  // because samtools default is
             region_lines = realloc(region_lines,nlines*sizeof(char*));
            
             sprintf(buf,"%s:%i-%i",reference_clean,beg,end);
-            region_lines[nlines-1] = buf;
+            fprintf(stderr,"mar4: buf = %s\n",buf);
+            fprintf(stderr,"mar4: nlines = %i\n",nlines);
+            region_lines[nlines-1] = strdup(buf);
             fprintf(stderr,"mar4: region_lines[%i] = %s\n",nlines-1,region_lines[nlines-1]);
         }
         if (1 == num) {  // VCF-style format
@@ -245,14 +252,17 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end)
     ks_destroy(ks);
     gzclose(fp);
     free(str.s);
-    return nlines;
+    *pnlines = nlines;
+    *argv = region_lines;
+    return 0;
  fail:
     fprintf(stderr, "[bed_read] Error reading %s : %s\n", fn, strerror(errno));
+    return 1;
  fail_no_msg:
     if (ks) ks_destroy(ks);
     if (fp) gzclose(fp);
     free(str.s);
-    return 0;
+    return 1;
 }
 void *bed_read(const char *fn)
 {

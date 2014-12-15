@@ -118,7 +118,7 @@ static inline void pileup_seq(FILE *fp, const bam_pileup1_t *p, int pos, int ref
 #define MPLP_SMART_OVERLAPS (1<<12)
 
 void *bed_read(const char *fn);
-int bed_read_as_array(const char *bedfilename, char *region_lines);
+int bed_read_as_array(const char *bedfilename, int *pnlines, char ***region_lines);
 void bed_destroy(void *_h);
 int bed_overlap(const void *_h, const char *chr, int beg, int end);
 
@@ -394,6 +394,7 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
             //}
             // mar4: this check didn't exist in 0.1.19....
             if ( (data[i]->iter=sam_itr_querys(idx, data[i]->h, conf->reg)) == 0) {
+                fprintf(stderr,"mar4: conf->reg: %s\n",conf->reg);
                 fprintf(stderr, "[E::%s] fail to parse region '%s'\n", __func__, conf->reg);
                 exit(1);
             }
@@ -1145,8 +1146,9 @@ int bam_mpileup(int argc, char *argv[])
       // mar4: cw comment: Loop over BED file, inserting each line into mplp.reg before mpileup
       fprintf(stderr,"mar4: few_bed_regions\n");
       const char* bedfilename = (const char*) mplp.bed;
-      char* region_lines;
-      int nbedlines = bed_read_as_array(bedfilename,region_lines);
+      int nbedlines;
+      char **region_lines = NULL;
+      int mary = bed_read_as_array(bedfilename,&nbedlines,&region_lines);
       //fprintf(stderr,"mar4: region_lines[%i] = %s\n",ix,region_lines[ix]);
       fprintf(stderr,"mar4: back in %s, nbedlines = %i\n",__func__,nbedlines);
       //fprintf(stderr,"mar4: mplp.bed:    %s\n",mplp.bed);
@@ -1162,8 +1164,9 @@ int bam_mpileup(int argc, char *argv[])
       for (ix = 0; ix < nbedlines ; ix++) {
         //fixBedLine (fn[ix]);
         fprintf(stderr,"mar4: start loop...idx = %i\n",ix);
-        fprintf(stderr,"mar4: region_lines[%i] = %s\n",ix,region_lines);
+        fprintf(stderr,"mar4: region_lines[%i] = %s\n",ix,region_lines[ix]);
         mplp.reg = region_lines[ix];
+        fprintf(stderr,"mar4: mplp.reg: %s\n",mplp.reg);
         fprintf(stderr,"mar4: getting ready for mpileup.\n");
         // mar4: trying ret = here... but we return something different in 1.0 vs 0.1.19
         ret = mpileup(&mplp,argc-optind,argv+optind);
